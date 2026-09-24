@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/FinTSExplorer.Console/">
+    <Project Path="FinTSExplorer.Console/FinTSExplorer.csproj" />
+  </Folder>
+  <Project Path="FinTSExplorer.Core/FinTSExplorer.Core.csproj" />
+  <Project Path="FinTSExplorer.Notifier/FinTSExplorer.Notifier.csproj" />
+  <Project Path="FinTSExplorer.Service/FinTSExplorer.Service.csproj" />
+</Solution>

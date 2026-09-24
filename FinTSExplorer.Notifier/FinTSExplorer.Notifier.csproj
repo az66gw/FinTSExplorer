@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+<Target Name="IncrementBuildNumber" BeforeTargets="BeforeBuild" Condition="'$(Configuration)' == 'Release'">
+  <ReadLinesFromFile File="BuildNumber.txt" Condition="Exists('BuildNumber.txt')">
+    <Output TaskParameter="Lines" ItemName="BuildNumberLines" />
+  </ReadLinesFromFile>
+
+  <PropertyGroup>
+    <CurrentBuildNumber Condition="'@(BuildNumberLines)' != ''">@(BuildNumberLines)</CurrentBuildNumber>
+    <CurrentBuildNumber Condition="'$(CurrentBuildNumber)' == ''">0</CurrentBuildNumber>
+    <NextBuildNumber>$([MSBuild]::Add($(CurrentBuildNumber), 1))</NextBuildNumber>
+  </PropertyGroup>
+
+  <WriteLinesToFile File="BuildNumber.txt" Lines="$(NextBuildNumber)" Overwrite="true" />
+
+  <PropertyGroup>
+    <Version>1.0.$(NextBuildNumber)</Version>
+    <AssemblyVersion>1.0.$(NextBuildNumber).0</AssemblyVersion>
+    <FileVersion>1.0.$(NextBuildNumber).0</FileVersion>
+  </PropertyGroup>
+</Target>
+
+</Project>

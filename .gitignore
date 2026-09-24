@@ -1,0 +1,20 @@
+bin/
+obj/
+FinTSConfig.json
+MailContext.json
+Umsaetze/
+logs/
+.vs/
+*.user
+*.suo
+
+## ---- FinTSExplorer-spezifisch ----
+
+# Deploy-Ordner: kompletter Publish-Output (DLLs, Logs) PLUS die Config-Dateien
+# mit echten FinTS-Zugangsdaten im Klartext (FinTSConfig.json, ...)
+# Darf niemals ins Repo, auch nicht in ein privates.
+Deploy/
+
+# Automatisch hochgezählter Build-Zähler, maschinenlokal, kein Quellcode
+FinTSExplorer.Service/BuildNumber.txt
+FinTSExplorer.Notifier/BuildNumber.txt
