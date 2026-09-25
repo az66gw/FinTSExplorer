@@ -1,5 +1,6 @@
 using FinTSExplorer.Core;
 using libfintx.FinTS;
+using System.Globalization;
 using System.Text;
 
 namespace FinTSExplorer.Service;
@@ -102,7 +103,12 @@ public class Worker : BackgroundService
             body.AppendLine($"{AccountDisplayNames.GetDisplayName(displayNames, result.Account)} ({result.Account.AccountIban}):");
 
             foreach (var transaction in result.NewTransactions.OrderBy(t => t.ValueDate))
-                body.AppendLine($"  {transaction.ValueDate:d}  {transaction.Amount,10:0.00} EUR  {transaction.PartnerName}  {transaction.Description}");
+            {
+                var valueDate = transaction.ValueDate.ToString("d", CultureInfo.InvariantCulture);
+                var amount = transaction.Amount.ToString("0.00", CultureInfo.InvariantCulture);
+                body.AppendLine($"  {valueDate}  {amount,10} EUR  {transaction.PartnerName}");
+                body.AppendLine($"    {transaction.Description}");
+            }
 
             body.AppendLine();
         }
