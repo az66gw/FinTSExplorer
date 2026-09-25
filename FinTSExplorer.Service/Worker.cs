@@ -82,22 +82,12 @@ public class Worker : BackgroundService
             return;
 
         var changed = updateResults.Where(r => r.NewTransactions.Count > 0).ToList();
-
-        string subject;
-        string body;
-
         if (changed.Count == 0)
-        {
-            // Wird für die Testphase bewusst auch ohne Änderungen verschickt, als Lebenszeichen des Dienstes.
-            subject = "FinTSExplorer: keine neuen Umsätze";
-            body = $"Lauf am {DateTime.Now:g} abgeschlossen, keine neuen Umsätze gefunden.";
-        }
-        else
-        {
-            var totalCount = changed.Sum(c => c.NewTransactions.Count);
-            subject = $"FinTSExplorer: {totalCount} neue{(totalCount == 1 ? "r" : "")} Umsatz{(totalCount == 1 ? "" : "ätze")}";
-            body = BuildMailBody(displayNames, changed);
-        }
+            return;
+
+        var totalCount = changed.Sum(c => c.NewTransactions.Count);
+        var subject = $"FinTSExplorer: {totalCount} neue{(totalCount == 1 ? "r" : "")} Umsatz{(totalCount == 1 ? "" : "ätze")}";
+        var body = BuildMailBody(displayNames, changed);
 
         var sender = new GmxMailSender(_logger);
         await sender.SendAsync(mailContext, subject, body);
