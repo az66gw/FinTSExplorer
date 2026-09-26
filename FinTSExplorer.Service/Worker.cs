@@ -100,7 +100,10 @@ public class Worker : BackgroundService
 
         foreach (var result in changed)
         {
-            body.AppendLine($"{AccountDisplayNames.GetDisplayName(displayNames, result.Account)} ({result.Account.AccountIban}):");
+            var balance = result.Balance is not null
+                ? $" – Kontostand: {result.Balance.Value.ToString("0.00", CultureInfo.InvariantCulture)} EUR"
+                : "";
+            body.AppendLine($"{AccountDisplayNames.GetDisplayName(displayNames, result.Account)} ({result.Account.AccountIban}){balance}:");
 
             foreach (var transaction in result.NewTransactions.OrderBy(t => t.ValueDate))
             {

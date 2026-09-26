@@ -4,7 +4,7 @@ using libfintx.FinTS.Data;
 
 namespace FinTSExplorer.Core;
 
-public sealed record AccountUpdateResult(AccountInformation Account, List<CamtTransaction> NewTransactions);
+public sealed record AccountUpdateResult(AccountInformation Account, List<CamtTransaction> NewTransactions, decimal? Balance);
 
 public class AccountUpdater
 {
@@ -64,7 +64,26 @@ public class AccountUpdater
 
         var added = TransactionStore.Save(path, result.Data);
         _log($"[{account.AccountIban}] {added.Count} neue Umsätze gespeichert.");
-        return new AccountUpdateResult(account, added);
+
+        var balance = await FetchBalanceAsync(account);
+        return new AccountUpdateResult(account, added, balance);
+    }
+
+    private async Task<decimal?> FetchBalanceAsync(AccountInformation account)
+    {
+        var result = await _operations.WaitForResultAsync(_client.Balance(new TANDialog(_operations.WaitForTanAsync)));
+        if (result is null)
+            return null;
+
+        LogMessages(result.Messages);
+
+        if (FinTsOperations.HasError(result.Messages))
+        {
+            _log($"[{account.AccountIban}] Kontostand konnte nicht abgerufen werden.");
+            return null;
+        }
+
+        return result.Data.Balance;
     }
 
     public async Task<List<AccountUpdateResult>> UpdateAllAsync(List<AccountInformation> accounts, ConnectionDetails connectionDetails)
