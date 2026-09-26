@@ -5,7 +5,6 @@ namespace FinTSExplorer.Core;
 
 public static class FinTsConfig
 {
-    public const int DefaultBankCode = 50090500;
     public const string DefaultUrl = "https://fints2.atruvia.de/cgi-bin/hbciservlet";
     private const string ConfigFileName = "FinTSConfig.json";
 
@@ -39,7 +38,7 @@ public static class FinTsConfig
         var template = new ConnectionDetails
         {
             Url = DefaultUrl,
-            Blz = DefaultBankCode,
+            Blz = 0,
             UserId = string.Empty,
             Bic = string.Empty,
             Pin = string.Empty,
