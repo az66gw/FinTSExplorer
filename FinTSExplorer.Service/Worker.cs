@@ -29,6 +29,15 @@ public class Worker : BackgroundService
                 _logger.LogError(ex, "Fehler beim Aktualisieren der Kontoumsätze");
             }
 
+            try
+            {
+                await RunMonthlyFixedCostsReportIfDueAsync(baseDirectory);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Fehler bei der Fixkosten-Prognose");
+            }
+
             // Wird jeden Zyklus neu geladen, damit Änderungen am Zeitplan ohne Dienst-Neustart greifen.
             var schedule = ScheduleConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
             var nextRun = ScheduleConfig.GetNextRun(schedule, DateTime.Now);
@@ -114,6 +123,51 @@ public class Worker : BackgroundService
             }
 
             body.AppendLine();
+        }
+
+        return body.ToString();
+    }
+
+    // TESTPHASE: alle 2 Tage statt nur am letzten Kalendertag des Monats, damit sich das Mailformat schneller
+    // pruefen laesst, ohne auf den Monatswechsel zu warten. Spaeter auf die einfache Monatsletzter-Pruefung
+    // zurückstellen (today.Day != DateTime.DaysInMonth(today.Year, today.Month) => return).
+    private const int TestPhaseIntervalDays = 2;
+
+    // Laeuft unabhaengig vom regulaeren Umsatz-Update mit - sagt die Fixkosten des Folgemonats grob voraus
+    // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie.
+    private async Task RunMonthlyFixedCostsReportIfDueAsync(string baseDirectory)
+    {
+        var today = DateTime.Now;
+        if (FixedCostReportState.DaysSinceLastSent(baseDirectory, today) < TestPhaseIntervalDays)
+            return;
+
+        var mailContext = MailConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
+        if (mailContext is null)
+            return;
+
+        var transactions = TransactionStore.LoadAll(baseDirectory);
+        var overrides = FixedCostOverrides.Load(baseDirectory);
+        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides);
+
+        var subject = $"FinTSExplorer: Fixkosten-Prognose {today.AddMonths(1):MMMM yyyy}";
+        var body = BuildFixedCostsMailBody(forecast);
+
+        var sender = new GmxMailSender(_logger);
+        if (await sender.SendAsync(mailContext, subject, body))
+            FixedCostReportState.MarkSent(baseDirectory, today);
+    }
+
+    private static string BuildFixedCostsMailBody(List<FixedCostForecastEntry> forecast)
+    {
+        var body = new StringBuilder();
+        body.AppendLine("Voraussichtliche Fixkosten fuer den kommenden Monat (sortiert nach Tag im Monat):");
+        body.AppendLine();
+
+        foreach (var entry in forecast)
+        {
+            var amount = entry.AverageAmount.ToString("0.00", CultureInfo.InvariantCulture);
+            body.AppendLine($"Tag {entry.ExpectedDay,2}:  {entry.Label,-55} {amount,10} EUR");
+            body.AppendLine($"          ({entry.Basis})");
         }
 
         return body.ToString();
