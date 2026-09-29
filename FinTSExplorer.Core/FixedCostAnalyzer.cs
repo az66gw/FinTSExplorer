@@ -19,23 +19,62 @@ public static class FixedCostAnalyzer
         return entries.OrderBy(e => e.ExpectedDay).ToList();
     }
 
-    private static IEnumerable<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions)
+    // Fuer den Praefix-Merge unten: kuerzere Schluessel erst ab dieser Laenge als moegliche abgeschnittene
+    // Variante eines laengeren akzeptieren, um zufaellige Treffer bei kurzen Namen zu vermeiden.
+    private const int MinPrefixMatchLength = 20;
+
+    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions)
     {
         var outgoing = transactions.Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName));
 
-        foreach (var group in outgoing.GroupBy(t => t.PartnerName!.Trim()))
+        // Manche Altbuchungen der Bank (vor einer SEPA-Formatumstellung, TypeCode 828/"Summenbeleg") haben durch
+        // ein Legacy-DTA-Zeilenformat zufaellige Leerzeichen mitten im Namen, z.B. "congstar - eine Marke der T
+        // elekom D eutschland GmbH" statt "... Telekom Deutschland GmbH". Ohne Leerzeichen vergleichen, damit
+        // solche Varianten mit der sauberen Schreibweise zusammenfallen.
+        var groups = outgoing
+            .GroupBy(t => NormalizeKey(t.PartnerName!))
+            .Select(g => (Key: g.Key, Transactions: g.ToList()))
+            .OrderByDescending(g => g.Key.Length)
+            .ToList();
+
+        // Bei manchen dieser Altbuchungen ist der Name zusaetzlich auf eine feste Feldlaenge abgeschnitten,
+        // wodurch die eingefuegten Leerzeichen echte Zeichen am Ende verdraengen (z.B. "...eingetrageneGe"
+        // statt "...eingetrageneGeno") - reines Entfernen der Leerzeichen fuehrt solche verkuerzten Varianten
+        // dann nicht zusammen. Deshalb zusaetzlich per Praefix der laengeren, saubereren Variante zuordnen.
+        var merged = new List<(string Key, List<CamtTransaction> Transactions)>();
+        foreach (var group in groups)
         {
-            var distinctMonths = group.Select(t => new DateTime(t.ValueDate.Year, t.ValueDate.Month, 1)).Distinct().Count();
+            var target = merged.FirstOrDefault(m =>
+                group.Key.Length >= MinPrefixMatchLength && m.Key.StartsWith(group.Key, StringComparison.Ordinal));
+
+            if (target.Transactions is not null)
+                target.Transactions.AddRange(group.Transactions);
+            else
+                merged.Add((group.Key, group.Transactions));
+        }
+
+        var results = new List<FixedCostForecastEntry>();
+        foreach (var (_, groupTransactions) in merged)
+        {
+            var distinctMonths = groupTransactions.Select(t => new DateTime(t.ValueDate.Year, t.ValueDate.Month, 1)).Distinct().Count();
             if (distinctMonths < MinDistinctMonths)
                 continue;
 
-            yield return new FixedCostForecastEntry(
-                group.Key,
-                MedianDay(group.Select(t => t.ValueDate.Day)),
-                Math.Round(group.Average(t => t.Amount), 2),
-                $"{distinctMonths} Monate");
+            // Neuere Buchungen haben eher die saubere Schreibweise (siehe Kommentar oben) - als Anzeigename nehmen.
+            var label = groupTransactions.OrderByDescending(t => t.ValueDate).First().PartnerName!.Trim();
+
+            results.Add(new FixedCostForecastEntry(
+                label,
+                MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
+                Math.Round(groupTransactions.Average(t => t.Amount), 2),
+                $"{distinctMonths} Monate"));
         }
+
+        return results;
     }
+
+    private static string NormalizeKey(string partnerName) =>
+        new(partnerName.Where(c => !char.IsWhiteSpace(c)).ToArray());
 
     private static IEnumerable<FixedCostForecastEntry> AnalyzeOverrides(List<CamtTransaction> transactions, List<FixedCostOverride> overrides)
     {
