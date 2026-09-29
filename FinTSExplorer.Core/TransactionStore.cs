@@ -13,6 +13,18 @@ public static class TransactionStore
         return Path.Combine(directory, $"{iban}.json");
     }
 
+    // Kontounabhaengig, liest direkt alle Umsaetze/*.json - braucht keine laufende FinTS-Verbindung/Kontenliste.
+    public static List<CamtTransaction> LoadAll(string baseDirectory)
+    {
+        var directory = Path.Combine(baseDirectory, "Umsaetze");
+        if (!Directory.Exists(directory))
+            return new List<CamtTransaction>();
+
+        return Directory.GetFiles(directory, "*.json")
+            .SelectMany(path => LoadExisting(path))
+            .ToList();
+    }
+
     private static JsonSerializerOptions Options => new()
     {
         WriteIndented = true,
