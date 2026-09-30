@@ -19,7 +19,7 @@ public class GmxMailSender
         _logger = logger;
     }
 
-    public async Task<bool> SendAsync(MailContext context, string subject, string body)
+    public async Task<bool> SendAsync(MailContext context, string subject, string body, CancellationToken cancellationToken = default)
     {
         // MailConfig.Load hat SenderAddress/SenderPassword bereits als nicht-leer validiert.
         var senderAddress = context.SenderAddress!;
@@ -37,16 +37,22 @@ public class GmxMailSender
 
             try
             {
-                await client.ConnectAsync(SmtpHost, SmtpPort, SecureSocketOptions.StartTls);
-                await client.AuthenticateAsync(senderAddress, senderPassword);
-                await client.SendAsync(message);
+                await client.ConnectAsync(SmtpHost, SmtpPort, SecureSocketOptions.StartTls, cancellationToken);
+                await client.AuthenticateAsync(senderAddress, senderPassword, cancellationToken);
+                await client.SendAsync(message, cancellationToken);
                 _logger.LogInformation("Update-Mail versendet.");
                 return true;
             }
             catch (Exception ex) when (attempt < MaxAttempts)
             {
                 _logger.LogWarning(ex, "Update-Mail-Versand fehlgeschlagen (Versuch {Attempt}/{MaxAttempts}), erneuter Versuch in {Delay}.", attempt, MaxAttempts, RetryDelay);
-                await Task.Delay(RetryDelay);
+
+                // Erst trennen, dann warten - sonst bleibt eine halb aufgebaute Verbindung waehrend der
+                // gesamten Pause unnoetig offen (finally unten laeuft erst NACH diesem catch-Block).
+                if (client.IsConnected)
+                    await client.DisconnectAsync(true, cancellationToken);
+
+                await Task.Delay(RetryDelay, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -56,7 +62,7 @@ public class GmxMailSender
             finally
             {
                 if (client.IsConnected)
-                    await client.DisconnectAsync(true);
+                    await client.DisconnectAsync(true, cancellationToken);
             }
         }
 
