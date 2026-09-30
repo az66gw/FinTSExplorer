@@ -22,7 +22,7 @@ public class Worker : BackgroundService
         {
             try
             {
-                await RunOnceAsync();
+                await RunOnceAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -31,7 +31,7 @@ public class Worker : BackgroundService
 
             try
             {
-                await RunMonthlyFixedCostsReportIfDueAsync(baseDirectory);
+                await RunMonthlyFixedCostsReportIfDueAsync(baseDirectory, stoppingToken);
             }
             catch (Exception ex)
             {
@@ -47,7 +47,7 @@ public class Worker : BackgroundService
         }
     }
 
-    private async Task RunOnceAsync()
+    private async Task RunOnceAsync(CancellationToken stoppingToken)
     {
         var baseDirectory = AppContext.BaseDirectory;
 
@@ -82,10 +82,10 @@ public class Worker : BackgroundService
         var displayNames = AccountDisplayNames.Load(baseDirectory);
         var updateResults = await updater.UpdateAllAsync(accounts, connectionDetails);
 
-        await SendUpdateMailAsync(baseDirectory, displayNames, updateResults);
+        await SendUpdateMailAsync(baseDirectory, displayNames, updateResults, stoppingToken);
     }
 
-    private async Task SendUpdateMailAsync(string baseDirectory, Dictionary<string, string> displayNames, List<AccountUpdateResult> updateResults)
+    private async Task SendUpdateMailAsync(string baseDirectory, Dictionary<string, string> displayNames, List<AccountUpdateResult> updateResults, CancellationToken stoppingToken)
     {
         var mailContext = MailConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
         if (mailContext is null)
@@ -100,7 +100,7 @@ public class Worker : BackgroundService
         var body = BuildMailBody(displayNames, changed);
 
         var sender = new GmxMailSender(_logger);
-        await sender.SendAsync(mailContext, subject, body);
+        await sender.SendAsync(mailContext, subject, body, stoppingToken);
     }
 
     private static string BuildMailBody(Dictionary<string, string> displayNames, List<AccountUpdateResult> changed)
@@ -135,7 +135,7 @@ public class Worker : BackgroundService
 
     // Laeuft unabhaengig vom regulaeren Umsatz-Update mit - sagt die Fixkosten des Folgemonats grob voraus
     // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie.
-    private async Task RunMonthlyFixedCostsReportIfDueAsync(string baseDirectory)
+    private async Task RunMonthlyFixedCostsReportIfDueAsync(string baseDirectory, CancellationToken stoppingToken)
     {
         var today = DateTime.Now;
         if (FixedCostReportState.DaysSinceLastSent(baseDirectory, today) < TestPhaseIntervalDays)
@@ -153,7 +153,7 @@ public class Worker : BackgroundService
         var body = BuildFixedCostsMailBody(forecast);
 
         var sender = new GmxMailSender(_logger);
-        if (await sender.SendAsync(mailContext, subject, body))
+        if (await sender.SendAsync(mailContext, subject, body, stoppingToken))
             FixedCostReportState.MarkSent(baseDirectory, today);
     }
 
