@@ -2,7 +2,7 @@ using libfintx.FinTS.Camt;
 
 namespace FinTSExplorer.Core;
 
-public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal AverageAmount, string Basis);
+public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal AverageAmount, string Basis, string? Description);
 
 public static class FixedCostAnalyzer
 {
@@ -63,13 +63,14 @@ public static class FixedCostAnalyzer
                 continue;
 
             // Neuere Buchungen haben eher die saubere Schreibweise (siehe Kommentar oben) - als Anzeigename nehmen.
-            var label = groupTransactions.OrderByDescending(t => t.ValueDate).First().PartnerName!.Trim();
+            var newest = groupTransactions.OrderByDescending(t => t.ValueDate).First();
 
             results.Add(new FixedCostForecastEntry(
-                label,
+                newest.PartnerName!.Trim(),
                 MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
                 Math.Round(groupTransactions.Average(t => t.Amount), 2),
-                $"{distinctMonths} Monate"));
+                $"{distinctMonths} Monate",
+                newest.Description));
         }
 
         return results;
@@ -98,7 +99,8 @@ public static class FixedCostAnalyzer
                 over.Label,
                 nextExpected.Day,
                 Math.Round(matches.Average(t => t.Amount), 2),
-                $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}");
+                $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}",
+                last.Description);
         }
     }
 

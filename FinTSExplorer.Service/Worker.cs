@@ -169,6 +169,9 @@ public class Worker : BackgroundService
             var amount = entry.AverageAmount.ToString("0.00", CultureInfo.InvariantCulture);
             body.AppendLine($"Tag {entry.ExpectedDay,2}:  {entry.Label,-55} {amount,10} EUR");
             body.AppendLine($"          ({entry.Basis})");
+
+            if (!string.IsNullOrWhiteSpace(entry.Description))
+                body.AppendLine($"          {entry.Description}");
         }
 
         return body.ToString();
