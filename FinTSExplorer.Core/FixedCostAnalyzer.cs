@@ -10,10 +10,10 @@ public static class FixedCostAnalyzer
     // um als "wiederkehrend" zu gelten - Override-Eintraege (siehe FixedCostOverrides) sind davon ausgenommen.
     private const int MinDistinctMonths = 3;
 
-    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides)
+    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes)
     {
         var entries = new List<FixedCostForecastEntry>();
-        entries.AddRange(AnalyzeAutomatic(transactions));
+        entries.AddRange(AnalyzeAutomatic(transactions, excludes));
         entries.AddRange(AnalyzeOverrides(transactions, overrides));
 
         return entries.OrderBy(e => e.ExpectedDay).ToList();
@@ -23,9 +23,11 @@ public static class FixedCostAnalyzer
     // Variante eines laengeren akzeptieren, um zufaellige Treffer bei kurzen Namen zu vermeiden.
     private const int MinPrefixMatchLength = 20;
 
-    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions)
+    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes)
     {
-        var outgoing = transactions.Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName));
+        var outgoing = transactions
+            .Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName))
+            .Where(t => !excludes.Any(exclude => t.PartnerName!.Contains(exclude, StringComparison.OrdinalIgnoreCase)));
 
         // Manche Altbuchungen der Bank (vor einer SEPA-Formatumstellung, TypeCode 828/"Summenbeleg") haben durch
         // ein Legacy-DTA-Zeilenformat zufaellige Leerzeichen mitten im Namen, z.B. "congstar - eine Marke der T

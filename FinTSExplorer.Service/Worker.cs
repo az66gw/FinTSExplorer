@@ -147,7 +147,8 @@ public class Worker : BackgroundService
 
         var transactions = TransactionStore.LoadAll(baseDirectory);
         var overrides = FixedCostOverrides.Load(baseDirectory);
-        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides);
+        var excludes = FixedCostExcludes.Load(baseDirectory);
+        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes);
 
         var subject = $"FinTSExplorer: Fixkosten-Prognose {today.AddMonths(1):MMMM yyyy}";
         var body = BuildFixedCostsMailBody(forecast);
