@@ -21,7 +21,7 @@ public static class FixedCostExcludes
 
         if (!File.Exists(path))
         {
-            var defaults = new List<string> { "FRISCHEPARADIES", "Ulf Hofmann" };
+            var defaults = new List<string>();
             File.WriteAllText(path, JsonSerializer.Serialize(defaults, options));
             return defaults;
         }
