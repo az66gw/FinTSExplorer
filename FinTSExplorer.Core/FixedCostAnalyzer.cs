@@ -62,6 +62,8 @@ public static class FixedCostAnalyzer
                 merged.Add((group.Key, group.Transactions));
         }
 
+        var forecastMonth = new DateTime(today.Year, today.Month, 1).AddMonths(1);
+
         var results = new List<FixedCostForecastEntry>();
         foreach (var (_, groupTransactions) in merged)
         {
@@ -77,12 +79,13 @@ public static class FixedCostAnalyzer
             // Neuere Buchungen haben eher die saubere Schreibweise (siehe Kommentar oben) - als Anzeigename nehmen.
             var newest = groupTransactions.OrderByDescending(t => t.ValueDate).First();
             var typicalGap = TypicalGap(months);
+            var (expectedDay, dayText) = EstimateDay(groupTransactions, forecastMonth);
 
             results.Add(new FixedCostForecastEntry(
                 newest.PartnerName!.Trim(),
-                MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
+                expectedDay,
                 newest.Amount,
-                $"{distinctMonths} Monate, {RhythmText(typicalGap)}",
+                $"{distinctMonths} Monate, {RhythmText(typicalGap)}, {dayText}",
                 newest.Description,
                 confirmed.Any(c => (newest.PartnerName?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)
                                    || (newest.Description?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)),
@@ -141,9 +144,46 @@ public static class FixedCostAnalyzer
         }
     }
 
-    private static int MedianDay(IEnumerable<int> days)
+    // Nur die juengsten Buchungen zaehlen: Verschiebt ein Einzieher seinen Tag (z.B. von 1. auf 4.-7.), soll die
+    // alte Phase die Schaetzung nicht dauerhaft verzerren.
+    private const int RecentBookingsForDay = 12;
+
+    // Schaetzt den Buchungstag im Prognosemonat. Zwei Sichten werden verglichen:
+    //  - Kalendertag ("immer am 15.", bei Wochenende verschiebt die Bank),
+    //  - n-ter Bankarbeitstag des Monats ("immer am 1. Bankarbeitstag", das Datum schwankt je nach Wochenende).
+    // Genommen wird die Sicht mit der kleineren Streuung; bei Gleichstand der Kalendertag.
+    private static (int Day, string Text) EstimateDay(List<CamtTransaction> bookings, DateTime forecastMonth)
     {
-        var sorted = days.OrderBy(d => d).ToList();
+        var recent = bookings.OrderByDescending(t => t.ValueDate).Take(RecentBookingsForDay).ToList();
+        var calendarDays = recent.Select(t => t.ValueDate.Day).ToList();
+        var bankDays = recent.Select(t => BankCalendar.BankDayIndex(t.ValueDate)).ToList();
+
+        var calendarSpread = Spread(calendarDays);
+        var bankSpread = Spread(bankDays);
+
+        if (bankSpread < calendarSpread)
+        {
+            var index = Median(bankDays);
+            var date = BankCalendar.DateOfBankDay(forecastMonth.Year, forecastMonth.Month, index);
+            return (date.Day, $"meist {index}. Bankarbeitstag{ScatterNote(bankSpread)}");
+        }
+
+        var day = Math.Min(Median(calendarDays), DateTime.DaysInMonth(forecastMonth.Year, forecastMonth.Month));
+        return (day, $"meist am {day}.{ScatterNote(calendarSpread)}");
+    }
+
+    private static string ScatterNote(int spread) => spread >= 2 ? " (streut)" : "";
+
+    private static int Median(List<int> values)
+    {
+        var sorted = values.OrderBy(v => v).ToList();
         return sorted[sorted.Count / 2];
+    }
+
+    // Robuste Streuung: Median der Abweichungen vom Median (Ausreisser wie ein einzelner 16. fallen kaum ins Gewicht).
+    private static int Spread(List<int> values)
+    {
+        var median = Median(values);
+        return Median(values.Select(v => Math.Abs(v - median)).ToList());
     }
 }
