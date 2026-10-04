@@ -10,15 +10,17 @@ public static class FixedCostReportState
 
     // NextSend = null (Datei fehlt bzw. noch kein Termin) -> der Aufrufer behandelt das als sofort faellig.
     // Interval im JSON als TimeSpan-Text, z.B. "2.00:00:00" fuer 2 Tage.
-    public sealed record State(DateTime? NextSend, TimeSpan Interval);
+    // RecipientAddress: Empfaenger aller Mails des Dienstes (Umsatz-Update und Fixkosten); bewusst ohne
+    // Vorgabe im Quellcode, steht nur in der (gitignorten) Deploy-Datei.
+    public sealed record State(DateTime? NextSend, TimeSpan Interval, string? RecipientAddress);
 
     public static State Load(string baseDirectory)
     {
         var path = Path.Combine(baseDirectory, FileName);
         if (!File.Exists(path))
-            return new State(null, DefaultInterval);
+            return new State(null, DefaultInterval, null);
 
-        var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? new State(null, DefaultInterval);
+        var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? new State(null, DefaultInterval, null);
         return state.Interval > TimeSpan.Zero ? state : state with { Interval = DefaultInterval };
     }
 

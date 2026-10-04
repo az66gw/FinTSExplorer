@@ -106,12 +106,19 @@ public class Worker : BackgroundService
         if (changed.Count == 0)
             return;
 
+        var recipientAddress = FixedCostReportState.Load(baseDirectory).RecipientAddress;
+        if (string.IsNullOrWhiteSpace(recipientAddress))
+        {
+            _logger.LogWarning("Keine RecipientAddress in FixedCostsReportState.json - Update-Mail wird übersprungen.");
+            return;
+        }
+
         var totalCount = changed.Sum(c => c.NewTransactions.Count);
         var subject = $"FinTSExplorer: {totalCount} neue{(totalCount == 1 ? "r" : "")} Umsatz{(totalCount == 1 ? "" : "ätze")}";
         var body = BuildMailBody(displayNames, changed);
 
         var sender = new GmxMailSender(_logger);
-        await sender.SendAsync(mailContext, subject, body, stoppingToken);
+        await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
     }
 
     private static string BuildMailBody(Dictionary<string, string> displayNames, List<AccountUpdateResult> changed)
@@ -166,6 +173,13 @@ public class Worker : BackgroundService
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(state.RecipientAddress))
+        {
+            _logger.LogWarning("Keine RecipientAddress in FixedCostsReportState.json - Fixkosten-Mail wird übersprungen.");
+            FixedCostReportState.Save(baseDirectory, state with { NextSend = now + RetryAfterFailure });
+            return;
+        }
+
         var transactions = TransactionStore.LoadAll(baseDirectory);
         var overrides = FixedCostOverrides.Load(baseDirectory);
         var excludes = FixedCostExcludes.Load(baseDirectory);
@@ -175,7 +189,7 @@ public class Worker : BackgroundService
         var body = BuildFixedCostsMailBody(forecast);
 
         var sender = new GmxMailSender(_logger);
-        var sent = await sender.SendAsync(mailContext, subject, body, stoppingToken);
+        var sent = await sender.SendAsync(mailContext, state.RecipientAddress, subject, body, stoppingToken);
 
         var next = sent ? now.Date + state.Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
         FixedCostReportState.Save(baseDirectory, state with { NextSend = next });

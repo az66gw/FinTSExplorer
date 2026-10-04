@@ -8,7 +8,6 @@ public class GmxMailSender
 {
     private const string SmtpHost = "mail.gmx.net";
     private const int SmtpPort = 587;
-    private const string RecipientAddress = "andreaszoeller_2010@gmx.de";
     private const int MaxAttempts = 3;
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(30);
 
@@ -19,7 +18,7 @@ public class GmxMailSender
         _logger = logger;
     }
 
-    public async Task<bool> SendAsync(MailContext context, string subject, string body, CancellationToken cancellationToken = default)
+    public async Task<bool> SendAsync(MailContext context, string recipientAddress, string subject, string body, CancellationToken cancellationToken = default)
     {
         // MailConfig.Load hat SenderAddress/SenderPassword bereits als nicht-leer validiert.
         var senderAddress = context.SenderAddress!;
@@ -27,7 +26,7 @@ public class GmxMailSender
 
         var message = new MimeMessage();
         message.From.Add(new MailboxAddress(context.SenderName, senderAddress));
-        message.To.Add(new MailboxAddress("", RecipientAddress));
+        message.To.Add(new MailboxAddress("", recipientAddress));
         message.Subject = subject;
         message.Body = new TextPart("plain") { Text = body };
 
