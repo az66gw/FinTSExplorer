@@ -11,6 +11,9 @@ public sealed class ServiceSettings
     // Empfaenger aller Mails des Dienstes (Umsatz-Update und Fixkosten). Bewusst ohne Vorgabe im Quellcode.
     public string? RecipientAddress { get; set; }
 
+    // Uhrzeit, zu der die Fixkosten-Mail nach Ablauf des Intervalls verschickt wird (JSON: "08:30:00").
+    public TimeOnly SendTime { get; set; } = new(8, 30);
+
     public static ServiceSettings Load(string baseDirectory)
     {
         var path = Path.Combine(baseDirectory, FileName);

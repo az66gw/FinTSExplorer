@@ -146,10 +146,6 @@ public class Worker : BackgroundService
         return body.ToString();
     }
 
-    // Uhrzeit des Fixkosten-Versands. Der Abstand zwischen zwei Mails (Interval) steht in
-    // FixedCostsReportState.json.
-    private static readonly TimeOnly SendTime = new(8, 30);
-
     // Wie oft zwischen zwei Umsatz-Updates geprueft wird, ob die Fixkosten-Mail faellig ist.
     private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
 
@@ -157,8 +153,9 @@ public class Worker : BackgroundService
     private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(30);
 
     // Laeuft unabhaengig vom regulaeren Umsatz-Update - sagt die Fixkosten des Folgemonats grob voraus
-    // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie. Der naechste Termin steht in
-    // FixedCostsReportState.json (NextSend); fehlt er, ist die Mail sofort faellig.
+    // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie. Der naechste Termin (NextSend) und der
+    // Abstand zwischen zwei Mails (Interval) stehen in FixedCostsReportState.json; fehlt NextSend, ist die Mail
+    // sofort faellig. Empfaenger und Versand-Uhrzeit (SendTime) stehen in ServiceSettings.json.
     private async Task SendFixedCostsReportIfDueAsync(string baseDirectory, CancellationToken stoppingToken)
     {
         var now = DateTime.Now;
@@ -173,7 +170,8 @@ public class Worker : BackgroundService
             return;
         }
 
-        var recipientAddress = ServiceSettings.Load(baseDirectory).RecipientAddress;
+        var settings = ServiceSettings.Load(baseDirectory);
+        var recipientAddress = settings.RecipientAddress;
         if (string.IsNullOrWhiteSpace(recipientAddress))
         {
             _logger.LogWarning("Keine RecipientAddress in ServiceSettings.json - Fixkosten-Mail wird übersprungen.");
@@ -192,7 +190,7 @@ public class Worker : BackgroundService
         var sender = new GmxMailSender(_logger);
         var sent = await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
 
-        var next = sent ? now.Date + state.Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
+        var next = sent ? now.Date + state.Interval + settings.SendTime.ToTimeSpan() : now + RetryAfterFailure;
         FixedCostReportState.Save(baseDirectory, state with { NextSend = next });
         _logger.LogInformation("Nächste Fixkosten-Mail: {NextSend}", next);
     }
