@@ -106,10 +106,10 @@ public class Worker : BackgroundService
         if (changed.Count == 0)
             return;
 
-        var recipientAddress = FixedCostReportState.Load(baseDirectory).RecipientAddress;
+        var recipientAddress = ServiceSettings.Load(baseDirectory).RecipientAddress;
         if (string.IsNullOrWhiteSpace(recipientAddress))
         {
-            _logger.LogWarning("Keine RecipientAddress in FixedCostsReportState.json - Update-Mail wird übersprungen.");
+            _logger.LogWarning("Keine RecipientAddress in ServiceSettings.json - Update-Mail wird übersprungen.");
             return;
         }
 
@@ -173,9 +173,10 @@ public class Worker : BackgroundService
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(state.RecipientAddress))
+        var recipientAddress = ServiceSettings.Load(baseDirectory).RecipientAddress;
+        if (string.IsNullOrWhiteSpace(recipientAddress))
         {
-            _logger.LogWarning("Keine RecipientAddress in FixedCostsReportState.json - Fixkosten-Mail wird übersprungen.");
+            _logger.LogWarning("Keine RecipientAddress in ServiceSettings.json - Fixkosten-Mail wird übersprungen.");
             FixedCostReportState.Save(baseDirectory, state with { NextSend = now + RetryAfterFailure });
             return;
         }
@@ -189,7 +190,7 @@ public class Worker : BackgroundService
         var body = BuildFixedCostsMailBody(forecast);
 
         var sender = new GmxMailSender(_logger);
-        var sent = await sender.SendAsync(mailContext, state.RecipientAddress, subject, body, stoppingToken);
+        var sent = await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
 
         var next = sent ? now.Date + state.Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
         FixedCostReportState.Save(baseDirectory, state with { NextSend = next });
