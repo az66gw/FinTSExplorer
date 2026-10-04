@@ -182,7 +182,8 @@ public class Worker : BackgroundService
         var transactions = TransactionStore.LoadAll(baseDirectory);
         var overrides = FixedCostOverrides.Load(baseDirectory);
         var excludes = FixedCostExcludes.Load(baseDirectory);
-        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes);
+        var confirmed = FixedCostConfirmed.Load(baseDirectory);
+        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes, confirmed);
 
         var subject = $"FinTSExplorer: Fixkosten-Prognose {now.AddMonths(1):MMMM yyyy}";
         var body = BuildFixedCostsMailBody(forecast);
@@ -199,12 +200,14 @@ public class Worker : BackgroundService
     {
         var body = new StringBuilder();
         body.AppendLine("Voraussichtliche Fixkosten fuer den kommenden Monat (sortiert nach Tag im Monat):");
+        body.AppendLine("* = von dir als Fixkosten bestaetigt (FixedCostsConfirmed.json bzw. Override)");
         body.AppendLine();
 
         foreach (var entry in forecast)
         {
             var amount = entry.ExpectedAmount.ToString("0.00", CultureInfo.InvariantCulture);
-            body.AppendLine($"Tag {entry.ExpectedDay,2}:  {entry.Label,-55} {amount,10} EUR");
+            var mark = entry.Confirmed ? "*" : " ";
+            body.AppendLine($"Tag {entry.ExpectedDay,2}: {mark} {entry.Label,-55} {amount,10} EUR");
             body.AppendLine($"          ({entry.Basis})");
 
             if (!string.IsNullOrWhiteSpace(entry.Description))

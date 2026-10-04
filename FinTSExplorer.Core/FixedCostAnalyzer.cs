@@ -2,7 +2,7 @@ using libfintx.FinTS.Camt;
 
 namespace FinTSExplorer.Core;
 
-public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description);
+public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description, bool Confirmed);
 
 public static class FixedCostAnalyzer
 {
@@ -10,10 +10,10 @@ public static class FixedCostAnalyzer
     // um als "wiederkehrend" zu gelten - Override-Eintraege (siehe FixedCostOverrides) sind davon ausgenommen.
     private const int MinDistinctMonths = 3;
 
-    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes)
+    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes, List<string> confirmed)
     {
         var entries = new List<FixedCostForecastEntry>();
-        entries.AddRange(AnalyzeAutomatic(transactions, excludes));
+        entries.AddRange(AnalyzeAutomatic(transactions, excludes, confirmed));
         entries.AddRange(AnalyzeOverrides(transactions, overrides));
 
         return entries.OrderBy(e => e.ExpectedDay).ToList();
@@ -23,7 +23,7 @@ public static class FixedCostAnalyzer
     // Variante eines laengeren akzeptieren, um zufaellige Treffer bei kurzen Namen zu vermeiden.
     private const int MinPrefixMatchLength = 20;
 
-    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes)
+    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes, List<string> confirmed)
     {
         var outgoing = transactions
             .Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName))
@@ -77,7 +77,9 @@ public static class FixedCostAnalyzer
                 MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
                 newest.Amount,
                 $"{distinctMonths} Monate, {RhythmText(months)}",
-                newest.Description));
+                newest.Description,
+                confirmed.Any(c => (newest.PartnerName?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)
+                                   || (newest.Description?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false))));
         }
 
         return results;
@@ -124,7 +126,8 @@ public static class FixedCostAnalyzer
                 nextExpected.Day,
                 last.Amount,
                 $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}",
-                last.Description);
+                last.Description,
+                Confirmed: true); // Wer einen Override anlegt, hat sich damit bereits als Fixkosten festgelegt.
         }
     }
 
