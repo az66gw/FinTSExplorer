@@ -139,8 +139,8 @@ public class Worker : BackgroundService
         return body.ToString();
     }
 
-    // Abstand zwischen zwei Fixkosten-Mails (aktuell Testphase: alle 2 Tage) und Uhrzeit des Versands.
-    private static readonly TimeSpan Interval = TimeSpan.FromDays(2);
+    // Uhrzeit des Fixkosten-Versands. Der Abstand zwischen zwei Mails (IntervalDays) steht in
+    // FixedCostsReportState.json.
     private static readonly TimeOnly SendTime = new(8, 30);
 
     // Wie oft zwischen zwei Umsatz-Updates geprueft wird, ob die Fixkosten-Mail faellig ist.
@@ -155,14 +155,14 @@ public class Worker : BackgroundService
     private async Task SendFixedCostsReportIfDueAsync(string baseDirectory, CancellationToken stoppingToken)
     {
         var now = DateTime.Now;
-        var nextSend = FixedCostReportState.LoadNextSend(baseDirectory);
-        if (nextSend is not null && now < nextSend)
+        var state = FixedCostReportState.Load(baseDirectory);
+        if (state.NextSend is not null && now < state.NextSend)
             return;
 
         var mailContext = MailConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
         if (mailContext is null)
         {
-            FixedCostReportState.SaveNextSend(baseDirectory, now + RetryAfterFailure);
+            FixedCostReportState.Save(baseDirectory, state with { NextSend = now + RetryAfterFailure });
             return;
         }
 
@@ -177,8 +177,8 @@ public class Worker : BackgroundService
         var sender = new GmxMailSender(_logger);
         var sent = await sender.SendAsync(mailContext, subject, body, stoppingToken);
 
-        var next = sent ? now.Date + Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
-        FixedCostReportState.SaveNextSend(baseDirectory, next);
+        var next = sent ? now.Date + TimeSpan.FromDays(state.IntervalDays) + SendTime.ToTimeSpan() : now + RetryAfterFailure;
+        FixedCostReportState.Save(baseDirectory, state with { NextSend = next });
         _logger.LogInformation("Nächste Fixkosten-Mail: {NextSend}", next);
     }
 
