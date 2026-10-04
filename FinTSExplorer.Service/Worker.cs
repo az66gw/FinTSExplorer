@@ -198,14 +198,31 @@ public class Worker : BackgroundService
 
     private static string BuildFixedCostsMailBody(List<FixedCostForecastEntry> forecast)
     {
+        // Oben, was noch Aufmerksamkeit braucht (nicht bestaetigt oder evtl. beendet), unten die klaren Faelle.
+        var toCheck = forecast.Where(e => !e.Confirmed || e.PossiblyEnded).OrderBy(e => e.ExpectedDay).ToList();
+        var clear = forecast.Where(e => e.Confirmed && !e.PossiblyEnded).OrderBy(e => e.ExpectedDay).ToList();
+
         var body = new StringBuilder();
-        body.AppendLine("Voraussichtliche Fixkosten fuer den kommenden Monat (sortiert nach Tag im Monat):");
+        body.AppendLine("Voraussichtliche Fixkosten fuer den kommenden Monat (je Gruppe nach Tag im Monat sortiert).");
         body.AppendLine("* = von dir als Fixkosten bestaetigt (FixedCostsConfirmed.json bzw. Override)");
-        if (forecast.Any(e => e.PossiblyEnded))
-            body.AppendLine("! = letzte Buchung liegt mehr als zwei Zyklen zurueck, Posten evtl. beendet");
+        body.AppendLine("! = letzte Buchung liegt mehr als zwei Zyklen zurueck, Posten evtl. beendet");
+
+        AppendGroup(body, "ZU PRUEFEN (nicht bestaetigt oder evtl. beendet)", toCheck);
+        AppendGroup(body, "BESTAETIGT", clear);
+
+        return body.ToString();
+    }
+
+    private static void AppendGroup(StringBuilder body, string title, List<FixedCostForecastEntry> entries)
+    {
+        if (entries.Count == 0)
+            return;
+
+        body.AppendLine();
+        body.AppendLine($"==== {title} ====");
         body.AppendLine();
 
-        foreach (var entry in forecast)
+        foreach (var entry in entries)
         {
             var amount = entry.ExpectedAmount.ToString("0.00", CultureInfo.InvariantCulture);
             var mark = entry.Confirmed ? "*" : " ";
@@ -218,7 +235,5 @@ public class Worker : BackgroundService
             if (!string.IsNullOrWhiteSpace(entry.Description))
                 body.AppendLine($"          {entry.Description}");
         }
-
-        return body.ToString();
     }
 }
