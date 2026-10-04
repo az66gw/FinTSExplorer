@@ -27,7 +27,9 @@ public static class FixedCostAnalyzer
     {
         var outgoing = transactions
             .Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName))
-            .Where(t => !excludes.Any(exclude => t.PartnerName!.Contains(exclude, StringComparison.OrdinalIgnoreCase)));
+            .Where(t => !excludes.Any(exclude =>
+                t.PartnerName!.Contains(exclude, StringComparison.OrdinalIgnoreCase)
+                || (t.Description?.Contains(exclude, StringComparison.OrdinalIgnoreCase) ?? false)));
 
         // Manche Altbuchungen der Bank (vor einer SEPA-Formatumstellung, TypeCode 828/"Summenbeleg") haben durch
         // ein Legacy-DTA-Zeilenformat zufaellige Leerzeichen mitten im Namen, z.B. "congstar - eine Marke der T

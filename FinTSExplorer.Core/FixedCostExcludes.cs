@@ -4,8 +4,8 @@ using System.Text.Json;
 namespace FinTSExplorer.Core;
 
 // Partner, die trotz regelmaessigem Auftauchen bewusst keine Fixkosten sind (Supermaerkte, Privatpersonen,
-// o.ae.) - Teilstring-Vergleich (case-insensitive) gegen PartnerName, nur fuer die automatische Erkennung,
-// nicht fuer FixedCostOverrides.
+// o.ae.) - Teilstring-Vergleich (case-insensitive) gegen PartnerName ODER Description, nur fuer die
+// automatische Erkennung, nicht fuer FixedCostOverrides.
 public static class FixedCostExcludes
 {
     private const string FileName = "FixedCostsExcludes.json";
