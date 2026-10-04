@@ -60,7 +60,12 @@ public static class FixedCostAnalyzer
         var results = new List<FixedCostForecastEntry>();
         foreach (var (_, groupTransactions) in merged)
         {
-            var distinctMonths = groupTransactions.Select(t => new DateTime(t.ValueDate.Year, t.ValueDate.Month, 1)).Distinct().Count();
+            var months = groupTransactions
+                .Select(t => t.ValueDate.Year * 12 + t.ValueDate.Month)
+                .Distinct()
+                .OrderBy(m => m)
+                .ToList();
+            var distinctMonths = months.Count;
             if (distinctMonths < MinDistinctMonths)
                 continue;
 
@@ -71,11 +76,28 @@ public static class FixedCostAnalyzer
                 newest.PartnerName!.Trim(),
                 MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
                 newest.Amount,
-                $"{distinctMonths} Monate",
+                $"{distinctMonths} Monate, {RhythmText(months)}",
                 newest.Description));
         }
 
         return results;
+    }
+
+    // Typischer Abstand zwischen zwei Monaten mit Buchung (Median), z.B. 3 = quartalsweise. Vorsicht: bei
+    // sehr lueckenhaften Partnern (z.B. Supermaerkte) ist das nur eine grobe Naeherung.
+    private static string RhythmText(List<int> sortedMonths)
+    {
+        var gaps = sortedMonths.Zip(sortedMonths.Skip(1), (a, b) => b - a).OrderBy(g => g).ToList();
+        var typicalGap = gaps[gaps.Count / 2];
+
+        return typicalGap switch
+        {
+            1 => "monatlich",
+            3 => "quartalsweise",
+            6 => "halbjährlich",
+            12 => "jährlich",
+            _ => $"alle {typicalGap} Monate",
+        };
     }
 
     private static string NormalizeKey(string partnerName) =>
