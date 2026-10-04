@@ -106,7 +106,8 @@ public class Worker : BackgroundService
         if (changed.Count == 0)
             return;
 
-        var recipientAddress = ServiceSettings.Load(baseDirectory).RecipientAddress;
+        var settings = ServiceSettings.Load(baseDirectory);
+        var recipientAddress = settings.RecipientAddress;
         if (string.IsNullOrWhiteSpace(recipientAddress))
         {
             _logger.LogWarning("Keine RecipientAddress in ServiceSettings.json - Update-Mail wird übersprungen.");
@@ -117,8 +118,88 @@ public class Worker : BackgroundService
         var subject = $"FinTSExplorer: {totalCount} neue{(totalCount == 1 ? "r" : "")} Umsatz{(totalCount == 1 ? "" : "ätze")}";
         var body = BuildMailBody(displayNames, changed);
 
+        var coverage = TryCalculateCoverage(baseDirectory, settings, changed);
+        if (coverage is not null)
+        {
+            if (coverage.Shortfall > 0)
+            {
+                subject = "ACHTUNG Deckung Gehaltskonto - " + subject;
+                body = BuildCoverageWarning(coverage) + Environment.NewLine + Environment.NewLine + body;
+            }
+
+            body += Environment.NewLine + BuildCoverageSection(coverage);
+        }
+
         var sender = new GmxMailSender(_logger);
         await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
+    }
+
+    // Deckungspruefung nur, wenn auf dem Gehaltskonto neue Buchungen dazugekommen sind. Ein Fehler hier darf
+    // die eigentliche Update-Mail nie verhindern.
+    private CoverageResult? TryCalculateCoverage(string baseDirectory, ServiceSettings settings, List<AccountUpdateResult> changed)
+    {
+        if (string.IsNullOrWhiteSpace(settings.SalaryAccountIban))
+            return null;
+
+        try
+        {
+            var salaryIban = settings.SalaryAccountIban.Replace(" ", "");
+            var salaryResult = changed.FirstOrDefault(r =>
+                string.Equals(r.Account.AccountIban?.Replace(" ", ""), salaryIban, StringComparison.OrdinalIgnoreCase));
+
+            if (salaryResult?.Balance is null)
+                return null;
+
+            var transactions = TransactionStore.LoadExisting(TransactionStore.GetFilePath(baseDirectory, salaryResult.Account.AccountIban));
+            var overrides = FixedCostOverrides.Load(baseDirectory);
+            var excludes = FixedCostExcludes.Load(baseDirectory);
+            var confirmed = FixedCostConfirmed.Load(baseDirectory);
+
+            return CoverageCheck.Calculate(salaryResult.Balance.Value, settings.OverdraftLimit, transactions, overrides, excludes, confirmed, DateTime.Now);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Deckungspruefung fuer das Gehaltskonto fehlgeschlagen - wird in der Mail ausgelassen.");
+            return null;
+        }
+    }
+
+    private static string BuildCoverageWarning(CoverageResult coverage)
+    {
+        var first = coverage.FirstShortfallItem!;
+        var shortfall = coverage.Shortfall.ToString("0.00", CultureInfo.InvariantCulture);
+        return $"ACHTUNG: Ab Tag {first.Day} ({first.Label}) reicht das Geld auf dem Gehaltskonto voraussichtlich nicht mehr."
+            + Environment.NewLine
+            + $"Es fehlen bis zu {shortfall} EUR - bitte vorher umbuchen.";
+    }
+
+    private static string BuildCoverageSection(CoverageResult coverage)
+    {
+        static string Money(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+
+        var text = new StringBuilder();
+        text.AppendLine("--- Deckung Gehaltskonto bis Monatsende ---");
+        text.AppendLine($"Kontostand heute: {Money(coverage.Balance),10} EUR");
+
+        if (coverage.Items.Count == 0)
+        {
+            text.AppendLine("Keine Fixkosten mehr fällig in diesem Monat.");
+        }
+        else
+        {
+            text.AppendLine("Noch ausstehend:");
+            foreach (var item in coverage.Items)
+            {
+                var note = item.PastDue ? "   (Tag schon vorbei, noch nicht gebucht)" : "";
+                text.AppendLine($"  Tag {item.Day,2}  {item.Label,-45} {Money(item.Amount),9}{note}");
+            }
+
+            text.AppendLine($"Summe ausstehend: {Money(coverage.Total),10} EUR");
+            text.AppendLine($"Voraussichtlich am Monatsende: {Money(coverage.EndBalance),10} EUR   -> {(coverage.Shortfall > 0 ? "ZU WENIG" : "OK")}");
+        }
+
+        text.AppendLine("Nicht enthalten: Gehalt, Bargeld, Kartenzahlungen und die Mastercard-Abrechnung.");
+        return text.ToString();
     }
 
     private static string BuildMailBody(Dictionary<string, string> displayNames, List<AccountUpdateResult> changed)
@@ -183,7 +264,7 @@ public class Worker : BackgroundService
         var overrides = FixedCostOverrides.Load(baseDirectory);
         var excludes = FixedCostExcludes.Load(baseDirectory);
         var confirmed = FixedCostConfirmed.Load(baseDirectory);
-        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes, confirmed, now);
+        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes, confirmed, now, new DateTime(now.Year, now.Month, 1).AddMonths(1));
 
         var subject = $"FinTSExplorer: Fixkosten-Prognose {now.AddMonths(1):MMMM yyyy}";
         var body = BuildFixedCostsMailBody(forecast);

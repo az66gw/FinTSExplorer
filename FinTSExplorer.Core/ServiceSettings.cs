@@ -11,6 +11,13 @@ public sealed class ServiceSettings
     // Empfaenger aller Mails des Dienstes (Umsatz-Update und Fixkosten). Bewusst ohne Vorgabe im Quellcode.
     public string? RecipientAddress { get; set; }
 
+    // IBAN des Gehaltskontos fuer die Deckungspruefung in der Update-Mail. Leer = keine Pruefung.
+    // Bewusst ohne Vorgabe im Quellcode.
+    public string? SalaryAccountIban { get; set; }
+
+    // Wie weit das Gehaltskonto ins Minus darf (positiver Betrag, 0 = kein Dispo).
+    public decimal OverdraftLimit { get; set; }
+
     // Uhrzeit, zu der die Fixkosten-Mail nach Ablauf des Intervalls verschickt wird (JSON: "08:30:00").
     public TimeOnly SendTime { get; set; } = new(8, 30);
 

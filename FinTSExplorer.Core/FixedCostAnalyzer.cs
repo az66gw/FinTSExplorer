@@ -2,7 +2,7 @@ using libfintx.FinTS.Camt;
 
 namespace FinTSExplorer.Core;
 
-public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description, bool Confirmed, DateTime LastBooking, bool PossiblyEnded);
+public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description, bool Confirmed, DateTime LastBooking, bool PossiblyEnded, int CycleMonths);
 
 public static class FixedCostAnalyzer
 {
@@ -10,11 +10,12 @@ public static class FixedCostAnalyzer
     // um als "wiederkehrend" zu gelten - Override-Eintraege (siehe FixedCostOverrides) sind davon ausgenommen.
     private const int MinDistinctMonths = 3;
 
-    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes, List<string> confirmed, DateTime today)
+    // forecastMonth = erster Tag des Monats, fuer den der erwartete Buchungstag geschaetzt wird.
+    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes, List<string> confirmed, DateTime today, DateTime forecastMonth)
     {
         var entries = new List<FixedCostForecastEntry>();
-        entries.AddRange(AnalyzeAutomatic(transactions, excludes, confirmed, today));
-        entries.AddRange(AnalyzeOverrides(transactions, overrides, today));
+        entries.AddRange(AnalyzeAutomatic(transactions, excludes, confirmed, today, forecastMonth));
+        entries.AddRange(AnalyzeOverrides(transactions, overrides, today, forecastMonth));
 
         return entries.OrderBy(e => e.ExpectedDay).ToList();
     }
@@ -28,7 +29,7 @@ public static class FixedCostAnalyzer
     // Variante eines laengeren akzeptieren, um zufaellige Treffer bei kurzen Namen zu vermeiden.
     private const int MinPrefixMatchLength = 20;
 
-    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes, List<string> confirmed, DateTime today)
+    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes, List<string> confirmed, DateTime today, DateTime forecastMonth)
     {
         var outgoing = transactions
             .Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName))
@@ -62,8 +63,6 @@ public static class FixedCostAnalyzer
                 merged.Add((group.Key, group.Transactions));
         }
 
-        var forecastMonth = new DateTime(today.Year, today.Month, 1).AddMonths(1);
-
         var results = new List<FixedCostForecastEntry>();
         foreach (var (_, groupTransactions) in merged)
         {
@@ -90,7 +89,8 @@ public static class FixedCostAnalyzer
                 confirmed.Any(c => (newest.PartnerName?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)
                                    || (newest.Description?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)),
                 newest.ValueDate,
-                IsPossiblyEnded(newest.ValueDate, typicalGap, today)));
+                IsPossiblyEnded(newest.ValueDate, typicalGap, today),
+                typicalGap));
         }
 
         return results;
@@ -116,7 +116,7 @@ public static class FixedCostAnalyzer
     private static string NormalizeKey(string partnerName) =>
         new(partnerName.Where(c => !char.IsWhiteSpace(c)).ToArray());
 
-    private static IEnumerable<FixedCostForecastEntry> AnalyzeOverrides(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, DateTime today)
+    private static IEnumerable<FixedCostForecastEntry> AnalyzeOverrides(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, DateTime today, DateTime forecastMonth)
     {
         foreach (var over in overrides)
         {
@@ -134,13 +134,14 @@ public static class FixedCostAnalyzer
 
             yield return new FixedCostForecastEntry(
                 over.Label,
-                nextExpected.Day,
+                Math.Min(last.ValueDate.Day, DateTime.DaysInMonth(forecastMonth.Year, forecastMonth.Month)),
                 last.Amount,
                 $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}",
                 last.Description,
                 Confirmed: true, // Wer einen Override anlegt, hat sich damit bereits als Fixkosten festgelegt.
                 last.ValueDate,
-                IsPossiblyEnded(last.ValueDate, over.IntervalMonths, today));
+                IsPossiblyEnded(last.ValueDate, over.IntervalMonths, today),
+                over.IntervalMonths);
         }
     }
 
