@@ -2,7 +2,7 @@ using libfintx.FinTS.Camt;
 
 namespace FinTSExplorer.Core;
 
-public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal AverageAmount, string Basis, string? Description);
+public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description);
 
 public static class FixedCostAnalyzer
 {
@@ -70,7 +70,7 @@ public static class FixedCostAnalyzer
             results.Add(new FixedCostForecastEntry(
                 newest.PartnerName!.Trim(),
                 MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
-                Math.Round(groupTransactions.Average(t => t.Amount), 2),
+                newest.Amount,
                 $"{distinctMonths} Monate",
                 newest.Description));
         }
@@ -100,7 +100,7 @@ public static class FixedCostAnalyzer
             yield return new FixedCostForecastEntry(
                 over.Label,
                 nextExpected.Day,
-                Math.Round(matches.Average(t => t.Amount), 2),
+                last.Amount,
                 $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}",
                 last.Description);
         }
