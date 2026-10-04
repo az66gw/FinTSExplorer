@@ -29,21 +29,32 @@ public class Worker : BackgroundService
                 _logger.LogError(ex, "Fehler beim Aktualisieren der Kontoumsätze");
             }
 
-            try
-            {
-                await RunMonthlyFixedCostsReportIfDueAsync(baseDirectory, stoppingToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Fehler bei der Fixkosten-Prognose");
-            }
-
             // Wird jeden Zyklus neu geladen, damit Änderungen am Zeitplan ohne Dienst-Neustart greifen.
             var schedule = ScheduleConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
             var nextRun = ScheduleConfig.GetNextRun(schedule, DateTime.Now);
 
             _logger.LogInformation("Nächster Lauf um {NextRun}", nextRun);
-            await Task.Delay(nextRun - DateTime.Now, stoppingToken);
+
+            // In kurzen Schritten warten statt am Stück, damit zwischendurch geprueft werden kann, ob die
+            // Fixkosten-Mail faellig ist. Laeuft im selben Strang wie das Umsatz-Update, also ohne parallelen
+            // Zugriff auf die Umsaetze-Dateien.
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await SendFixedCostsReportIfDueAsync(baseDirectory, stoppingToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Fehler bei der Fixkosten-Prognose");
+                }
+
+                var remaining = nextRun - DateTime.Now;
+                if (remaining <= TimeSpan.Zero)
+                    break;
+
+                await Task.Delay(remaining < CheckInterval ? remaining : CheckInterval, stoppingToken);
+            }
         }
     }
 
@@ -128,34 +139,47 @@ public class Worker : BackgroundService
         return body.ToString();
     }
 
-    // TESTPHASE: alle 2 Tage statt nur am letzten Kalendertag des Monats, damit sich das Mailformat schneller
-    // pruefen laesst, ohne auf den Monatswechsel zu warten. Spaeter auf die einfache Monatsletzter-Pruefung
-    // zurückstellen (today.Day != DateTime.DaysInMonth(today.Year, today.Month) => return).
-    private const int TestPhaseIntervalDays = 2;
+    // Abstand zwischen zwei Fixkosten-Mails (aktuell Testphase: alle 2 Tage) und Uhrzeit des Versands.
+    private static readonly TimeSpan Interval = TimeSpan.FromDays(2);
+    private static readonly TimeOnly SendTime = new(8, 30);
 
-    // Laeuft unabhaengig vom regulaeren Umsatz-Update mit - sagt die Fixkosten des Folgemonats grob voraus
-    // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie.
-    private async Task RunMonthlyFixedCostsReportIfDueAsync(string baseDirectory, CancellationToken stoppingToken)
+    // Wie oft zwischen zwei Umsatz-Updates geprueft wird, ob die Fixkosten-Mail faellig ist.
+    private static readonly TimeSpan CheckInterval = TimeSpan.FromMinutes(1);
+
+    // Nach einem fehlgeschlagenen Versand nicht jede Minute neu versuchen (sonst SMTP-Login-Flut).
+    private static readonly TimeSpan RetryAfterFailure = TimeSpan.FromMinutes(30);
+
+    // Laeuft unabhaengig vom regulaeren Umsatz-Update - sagt die Fixkosten des Folgemonats grob voraus
+    // (Betrag + ungefaehrer Tag), auf Basis der gespeicherten Historie. Der naechste Termin steht in
+    // FixedCostsReportState.json (NextSend); fehlt er, ist die Mail sofort faellig.
+    private async Task SendFixedCostsReportIfDueAsync(string baseDirectory, CancellationToken stoppingToken)
     {
-        var today = DateTime.Now;
-        if (FixedCostReportState.DaysSinceLastSent(baseDirectory, today) < TestPhaseIntervalDays)
+        var now = DateTime.Now;
+        var nextSend = FixedCostReportState.LoadNextSend(baseDirectory);
+        if (nextSend is not null && now < nextSend)
             return;
 
         var mailContext = MailConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
         if (mailContext is null)
+        {
+            FixedCostReportState.SaveNextSend(baseDirectory, now + RetryAfterFailure);
             return;
+        }
 
         var transactions = TransactionStore.LoadAll(baseDirectory);
         var overrides = FixedCostOverrides.Load(baseDirectory);
         var excludes = FixedCostExcludes.Load(baseDirectory);
         var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes);
 
-        var subject = $"FinTSExplorer: Fixkosten-Prognose {today.AddMonths(1):MMMM yyyy}";
+        var subject = $"FinTSExplorer: Fixkosten-Prognose {now.AddMonths(1):MMMM yyyy}";
         var body = BuildFixedCostsMailBody(forecast);
 
         var sender = new GmxMailSender(_logger);
-        if (await sender.SendAsync(mailContext, subject, body, stoppingToken))
-            FixedCostReportState.MarkSent(baseDirectory, today);
+        var sent = await sender.SendAsync(mailContext, subject, body, stoppingToken);
+
+        var next = sent ? now.Date + Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
+        FixedCostReportState.SaveNextSend(baseDirectory, next);
+        _logger.LogInformation("Nächste Fixkosten-Mail: {NextSend}", next);
     }
 
     private static string BuildFixedCostsMailBody(List<FixedCostForecastEntry> forecast)

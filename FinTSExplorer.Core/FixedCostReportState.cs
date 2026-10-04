@@ -2,30 +2,27 @@ using System.Text.Json;
 
 namespace FinTSExplorer.Core;
 
-// Verhindert zu haeufigen Versand, wenn der Dienst mehrfach am Tag laeuft (siehe Schedule.json).
+// Merkt sich, wann die Fixkosten-Mail das naechste Mal faellig ist.
 public static class FixedCostReportState
 {
     private const string FileName = "FixedCostsReportState.json";
 
-    private sealed record State(DateTime? LastSentAt);
+    private sealed record State(DateTime? NextSend);
 
-    public static int DaysSinceLastSent(string baseDirectory, DateTime now)
+    // null = Datei fehlt bzw. noch kein Termin gespeichert -> der Aufrufer behandelt das als sofort faellig.
+    public static DateTime? LoadNextSend(string baseDirectory)
     {
         var path = Path.Combine(baseDirectory, FileName);
         if (!File.Exists(path))
-            return int.MaxValue;
+            return null;
 
-        var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path));
-        if (state?.LastSentAt is null)
-            return int.MaxValue;
-
-        return (now.Date - state.LastSentAt.Value.Date).Days;
+        return JsonSerializer.Deserialize<State>(File.ReadAllText(path))?.NextSend;
     }
 
-    public static void MarkSent(string baseDirectory, DateTime sentAt)
+    public static void SaveNextSend(string baseDirectory, DateTime nextSend)
     {
         var path = Path.Combine(baseDirectory, FileName);
         var options = new JsonSerializerOptions { WriteIndented = true };
-        File.WriteAllText(path, JsonSerializer.Serialize(new State(sentAt), options));
+        File.WriteAllText(path, JsonSerializer.Serialize(new State(nextSend), options));
     }
 }
