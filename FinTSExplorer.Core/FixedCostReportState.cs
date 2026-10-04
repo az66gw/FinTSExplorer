@@ -6,19 +6,20 @@ namespace FinTSExplorer.Core;
 public static class FixedCostReportState
 {
     private const string FileName = "FixedCostsReportState.json";
-    private const int DefaultIntervalDays = 2;
+    private static readonly TimeSpan DefaultInterval = TimeSpan.FromDays(2);
 
     // NextSend = null (Datei fehlt bzw. noch kein Termin) -> der Aufrufer behandelt das als sofort faellig.
-    public sealed record State(DateTime? NextSend, int IntervalDays = DefaultIntervalDays);
+    // Interval im JSON als TimeSpan-Text, z.B. "2.00:00:00" fuer 2 Tage.
+    public sealed record State(DateTime? NextSend, TimeSpan Interval);
 
     public static State Load(string baseDirectory)
     {
         var path = Path.Combine(baseDirectory, FileName);
         if (!File.Exists(path))
-            return new State(null);
+            return new State(null, DefaultInterval);
 
-        var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? new State(null);
-        return state.IntervalDays > 0 ? state : state with { IntervalDays = DefaultIntervalDays };
+        var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? new State(null, DefaultInterval);
+        return state.Interval > TimeSpan.Zero ? state : state with { Interval = DefaultInterval };
     }
 
     public static void Save(string baseDirectory, State state)

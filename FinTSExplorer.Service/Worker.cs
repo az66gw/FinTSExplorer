@@ -139,7 +139,7 @@ public class Worker : BackgroundService
         return body.ToString();
     }
 
-    // Uhrzeit des Fixkosten-Versands. Der Abstand zwischen zwei Mails (IntervalDays) steht in
+    // Uhrzeit des Fixkosten-Versands. Der Abstand zwischen zwei Mails (Interval) steht in
     // FixedCostsReportState.json.
     private static readonly TimeOnly SendTime = new(8, 30);
 
@@ -177,7 +177,7 @@ public class Worker : BackgroundService
         var sender = new GmxMailSender(_logger);
         var sent = await sender.SendAsync(mailContext, subject, body, stoppingToken);
 
-        var next = sent ? now.Date + TimeSpan.FromDays(state.IntervalDays) + SendTime.ToTimeSpan() : now + RetryAfterFailure;
+        var next = sent ? now.Date + state.Interval + SendTime.ToTimeSpan() : now + RetryAfterFailure;
         FixedCostReportState.Save(baseDirectory, state with { NextSend = next });
         _logger.LogInformation("Nächste Fixkosten-Mail: {NextSend}", next);
     }
