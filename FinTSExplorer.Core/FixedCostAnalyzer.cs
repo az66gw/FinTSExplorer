@@ -2,7 +2,7 @@ using libfintx.FinTS.Camt;
 
 namespace FinTSExplorer.Core;
 
-public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description, bool Confirmed);
+public sealed record FixedCostForecastEntry(string Label, int ExpectedDay, decimal ExpectedAmount, string Basis, string? Description, bool Confirmed, DateTime LastBooking, bool PossiblyEnded);
 
 public static class FixedCostAnalyzer
 {
@@ -10,20 +10,25 @@ public static class FixedCostAnalyzer
     // um als "wiederkehrend" zu gelten - Override-Eintraege (siehe FixedCostOverrides) sind davon ausgenommen.
     private const int MinDistinctMonths = 3;
 
-    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes, List<string> confirmed)
+    public static List<FixedCostForecastEntry> Analyze(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, List<string> excludes, List<string> confirmed, DateTime today)
     {
         var entries = new List<FixedCostForecastEntry>();
-        entries.AddRange(AnalyzeAutomatic(transactions, excludes, confirmed));
-        entries.AddRange(AnalyzeOverrides(transactions, overrides));
+        entries.AddRange(AnalyzeAutomatic(transactions, excludes, confirmed, today));
+        entries.AddRange(AnalyzeOverrides(transactions, overrides, today));
 
         return entries.OrderBy(e => e.ExpectedDay).ToList();
     }
+
+    // Ein Posten gilt als vermutlich beendet, wenn die letzte Buchung laenger als zwei volle Zyklen zurueckliegt.
+    // Er bleibt trotzdem in der Liste (nur gekennzeichnet): ein Ausbleiben soll auffallen, nicht verschwinden.
+    private static bool IsPossiblyEnded(DateTime lastBooking, int cycleMonths, DateTime today) =>
+        (today.Year * 12 + today.Month) - (lastBooking.Year * 12 + lastBooking.Month) > 2 * cycleMonths;
 
     // Fuer den Praefix-Merge unten: kuerzere Schluessel erst ab dieser Laenge als moegliche abgeschnittene
     // Variante eines laengeren akzeptieren, um zufaellige Treffer bei kurzen Namen zu vermeiden.
     private const int MinPrefixMatchLength = 20;
 
-    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes, List<string> confirmed)
+    private static List<FixedCostForecastEntry> AnalyzeAutomatic(List<CamtTransaction> transactions, List<string> excludes, List<string> confirmed, DateTime today)
     {
         var outgoing = transactions
             .Where(t => t.Amount < 0 && !string.IsNullOrWhiteSpace(t.PartnerName))
@@ -71,15 +76,18 @@ public static class FixedCostAnalyzer
 
             // Neuere Buchungen haben eher die saubere Schreibweise (siehe Kommentar oben) - als Anzeigename nehmen.
             var newest = groupTransactions.OrderByDescending(t => t.ValueDate).First();
+            var typicalGap = TypicalGap(months);
 
             results.Add(new FixedCostForecastEntry(
                 newest.PartnerName!.Trim(),
                 MedianDay(groupTransactions.Select(t => t.ValueDate.Day)),
                 newest.Amount,
-                $"{distinctMonths} Monate, {RhythmText(months)}",
+                $"{distinctMonths} Monate, {RhythmText(typicalGap)}",
                 newest.Description,
                 confirmed.Any(c => (newest.PartnerName?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)
-                                   || (newest.Description?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false))));
+                                   || (newest.Description?.Contains(c, StringComparison.OrdinalIgnoreCase) ?? false)),
+                newest.ValueDate,
+                IsPossiblyEnded(newest.ValueDate, typicalGap, today)));
         }
 
         return results;
@@ -87,25 +95,25 @@ public static class FixedCostAnalyzer
 
     // Typischer Abstand zwischen zwei Monaten mit Buchung (Median), z.B. 3 = quartalsweise. Vorsicht: bei
     // sehr lueckenhaften Partnern (z.B. Supermaerkte) ist das nur eine grobe Naeherung.
-    private static string RhythmText(List<int> sortedMonths)
+    private static int TypicalGap(List<int> sortedMonths)
     {
         var gaps = sortedMonths.Zip(sortedMonths.Skip(1), (a, b) => b - a).OrderBy(g => g).ToList();
-        var typicalGap = gaps[gaps.Count / 2];
-
-        return typicalGap switch
-        {
-            1 => "monatlich",
-            3 => "quartalsweise",
-            6 => "halbjährlich",
-            12 => "jährlich",
-            _ => $"alle {typicalGap} Monate",
-        };
+        return gaps[gaps.Count / 2];
     }
+
+    private static string RhythmText(int typicalGap) => typicalGap switch
+    {
+        1 => "monatlich",
+        3 => "quartalsweise",
+        6 => "halbjährlich",
+        12 => "jährlich",
+        _ => $"alle {typicalGap} Monate",
+    };
 
     private static string NormalizeKey(string partnerName) =>
         new(partnerName.Where(c => !char.IsWhiteSpace(c)).ToArray());
 
-    private static IEnumerable<FixedCostForecastEntry> AnalyzeOverrides(List<CamtTransaction> transactions, List<FixedCostOverride> overrides)
+    private static IEnumerable<FixedCostForecastEntry> AnalyzeOverrides(List<CamtTransaction> transactions, List<FixedCostOverride> overrides, DateTime today)
     {
         foreach (var over in overrides)
         {
@@ -127,7 +135,9 @@ public static class FixedCostAnalyzer
                 last.Amount,
                 $"Override, alle {over.IntervalMonths} Monat(e), nächste erwartet am {nextExpected:d}",
                 last.Description,
-                Confirmed: true); // Wer einen Override anlegt, hat sich damit bereits als Fixkosten festgelegt.
+                Confirmed: true, // Wer einen Override anlegt, hat sich damit bereits als Fixkosten festgelegt.
+                last.ValueDate,
+                IsPossiblyEnded(last.ValueDate, over.IntervalMonths, today));
         }
     }
 

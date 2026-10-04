@@ -183,7 +183,7 @@ public class Worker : BackgroundService
         var overrides = FixedCostOverrides.Load(baseDirectory);
         var excludes = FixedCostExcludes.Load(baseDirectory);
         var confirmed = FixedCostConfirmed.Load(baseDirectory);
-        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes, confirmed);
+        var forecast = FixedCostAnalyzer.Analyze(transactions, overrides, excludes, confirmed, now);
 
         var subject = $"FinTSExplorer: Fixkosten-Prognose {now.AddMonths(1):MMMM yyyy}";
         var body = BuildFixedCostsMailBody(forecast);
@@ -201,6 +201,8 @@ public class Worker : BackgroundService
         var body = new StringBuilder();
         body.AppendLine("Voraussichtliche Fixkosten fuer den kommenden Monat (sortiert nach Tag im Monat):");
         body.AppendLine("* = von dir als Fixkosten bestaetigt (FixedCostsConfirmed.json bzw. Override)");
+        if (forecast.Any(e => e.PossiblyEnded))
+            body.AppendLine("! = letzte Buchung liegt mehr als zwei Zyklen zurueck, Posten evtl. beendet");
         body.AppendLine();
 
         foreach (var entry in forecast)
@@ -209,6 +211,9 @@ public class Worker : BackgroundService
             var mark = entry.Confirmed ? "*" : " ";
             body.AppendLine($"Tag {entry.ExpectedDay,2}: {mark} {entry.Label,-55} {amount,10} EUR");
             body.AppendLine($"          ({entry.Basis})");
+
+            if (entry.PossiblyEnded)
+                body.AppendLine($"          ! evtl. beendet - letzte Buchung am {entry.LastBooking.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}");
 
             if (!string.IsNullOrWhiteSpace(entry.Description))
                 body.AppendLine($"          {entry.Description}");
