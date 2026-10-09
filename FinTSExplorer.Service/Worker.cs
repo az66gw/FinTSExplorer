@@ -182,45 +182,21 @@ public class Worker : BackgroundService
 
     private static (string Subject, string Body) BuildCoverageSummaryMail(CoverageResult coverage)
     {
-        static string Amount(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
         static string Cost(decimal value) => Math.Abs(value).ToString("0.00", CultureInfo.InvariantCulture);
 
         var german = new CultureInfo("de-DE");
-        var monthName = coverage.Month.ToString("MMMM", german);
         var open = -coverage.Total;
         var paid = -coverage.Paid;
 
-        var subject = $"FinTSExplorer: Fixkosten {monthName}, Deckung Gehaltskonto";
+        // Reine Uebersicht ohne Warnung - die Warnung steht in der ausfuehrlichen Update-Mail.
         var body = new StringBuilder();
-
-        if (coverage.Shortfall > 0)
-        {
-            subject = "ACHTUNG " + subject;
-            body.AppendLine(BuildCoverageWarning(coverage));
-            body.AppendLine();
-        }
-
-        body.AppendLine($"Fixkosten {monthName} (Gehaltskonto):  {Cost(paid + open),10} EUR");
-        body.AppendLine($"  davon schon abgebucht:            {Cost(paid),10} EUR");
-        body.AppendLine($"  noch offen:                       {Cost(open),10} EUR");
-        body.AppendLine();
-        body.AppendLine($"Kontostand heute:                   {Amount(coverage.Balance),10} EUR");
-        body.AppendLine($"Voraussichtlich am Monatsende:      {Amount(coverage.EndBalance),10} EUR   -> {(coverage.Shortfall > 0 ? "ZU WENIG" : "OK")}");
-        body.AppendLine();
-        body.AppendLine("Planung der naechsten Monate (Fixkosten Gehaltskonto):");
+        body.AppendLine($"{"Monat",-15} {"Fixkosten",10} {"davon abgebucht",17} {"noch offen",12}");
+        body.AppendLine($"{coverage.Month.ToString("MMMM yyyy", german),-15} {Cost(paid + open),10} {Cost(paid),17} {Cost(open),12}");
 
         foreach (var month in coverage.Outlook)
-        {
-            var extras = month.NonMonthlyItems.Count == 0
-                ? ""
-                : "   (inkl. nicht monatlich: " + string.Join(", ", month.NonMonthlyItems.Select(i => $"{i.Label} {Cost(i.Amount)}")) + ")";
+            body.AppendLine($"{month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10}");
 
-            body.AppendLine($"  {month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10} EUR{extras}");
-        }
-
-        body.AppendLine();
-        body.AppendLine("Nicht enthalten: Gehalt, Bargeld, Kartenzahlungen und die Mastercard-Abrechnung.");
-        return (subject, body.ToString());
+        return ("FinTSExplorer: Fixkosten-Uebersicht", body.ToString());
     }
 
     private static string BuildCoverageSection(CoverageResult coverage)
