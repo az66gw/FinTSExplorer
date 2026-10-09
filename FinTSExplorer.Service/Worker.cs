@@ -225,12 +225,17 @@ public class Worker : BackgroundService
         var paid = -coverage.Paid;
 
         // Reine Uebersicht ohne Warnung - die Warnung steht in der ausfuehrlichen Update-Mail.
+        // Sockel = der guenstigste Monat im Ausblick (der "Normalmonat"); die Spalte zeigt, wie viel ein Monat darueber liegt.
+        var currentTotal = paid + open;
+        var floor = coverage.Outlook.Select(m => Math.Abs(m.Total)).Append(currentTotal).Min();
+        string Diff(decimal total) => (Math.Abs(total) - floor).ToString("+0.00;-0.00;0.00", CultureInfo.InvariantCulture);
+
         var body = new StringBuilder();
-        body.AppendLine($"{"Monat",-15} {"Fixkosten",10} {"davon abgebucht",17} {"noch offen",12}");
-        body.AppendLine($"{coverage.Month.ToString("MMMM yyyy", german),-15} {Cost(paid + open),10} {Cost(paid),17} {Cost(open),12}");
+        body.AppendLine($"{"Monat",-15} {"Fixkosten",10} {"davon abgebucht",17} {"noch offen",12} {"Diff zum Sockel",17}");
+        body.AppendLine($"{coverage.Month.ToString("MMMM yyyy", german),-15} {Cost(currentTotal),10} {Cost(paid),17} {Cost(open),12} {Diff(currentTotal),17}");
 
         foreach (var month in coverage.Outlook)
-            body.AppendLine($"{month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10}");
+            body.AppendLine($"{month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10} {"",17} {"",12} {Diff(month.Total),17}");
 
         return ("FinTSExplorer: Fixkosten-Uebersicht", body.ToString());
     }
