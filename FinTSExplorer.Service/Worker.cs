@@ -94,6 +94,7 @@ public class Worker : BackgroundService
         var updateResults = await updater.UpdateAllAsync(accounts, connectionDetails);
 
         await SendUpdateMailAsync(baseDirectory, displayNames, updateResults, stoppingToken);
+        await SendCoverageSummaryIfDueAsync(baseDirectory, updateResults, stoppingToken);
     }
 
     private async Task SendUpdateMailAsync(string baseDirectory, Dictionary<string, string> displayNames, List<AccountUpdateResult> updateResults, CancellationToken stoppingToken)
@@ -132,17 +133,52 @@ public class Worker : BackgroundService
 
         var sender = new GmxMailSender(_logger);
         await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
-
-        // Zusaetzlich die knappe Fassung nur mit der Deckung und der 3-Monats-Planung, direkt hinterher.
-        if (coverage is not null)
-        {
-            var (summarySubject, summaryBody) = BuildCoverageSummaryMail(coverage);
-            await sender.SendAsync(mailContext, recipientAddress, summarySubject, summaryBody, stoppingToken);
-        }
     }
 
-    // Deckungspruefung nur, wenn auf dem Gehaltskonto neue Buchungen dazugekommen sind. Ein Fehler hier darf
-    // die eigentliche Update-Mail nie verhindern.
+    // Die knappe Uebersicht (Deckung + 3-Monats-Planung) hat einen eigenen Termin (CoverageSummaryState.json, z.B.
+    // Samstag 05:00). Sie haengt am Umsatz-Update, weil nur dort der aktuelle Kontostand geholt wird: Sie geht beim
+    // ersten Update ab dem Termin raus. Klappt etwas nicht, bleibt der Termin stehen und der naechste Lauf versucht es erneut.
+    private async Task SendCoverageSummaryIfDueAsync(string baseDirectory, List<AccountUpdateResult> updateResults, CancellationToken stoppingToken)
+    {
+        var now = DateTime.Now;
+        var state = CoverageSummaryState.Load(baseDirectory);
+        if (state.NextSend is not null && now < state.NextSend)
+            return;
+
+        var mailContext = MailConfig.Load(baseDirectory, message => _logger.LogInformation("{Message}", message));
+        if (mailContext is null)
+            return;
+
+        var settings = ServiceSettings.Load(baseDirectory);
+        var recipientAddress = settings.RecipientAddress;
+        if (string.IsNullOrWhiteSpace(recipientAddress))
+        {
+            _logger.LogWarning("Keine RecipientAddress in ServiceSettings.json - Fixkosten-Uebersicht wird übersprungen.");
+            return;
+        }
+
+        var coverage = TryCalculateCoverage(baseDirectory, settings, updateResults);
+        if (coverage is null)
+        {
+            _logger.LogWarning("Keine Deckungsdaten verfügbar - Fixkosten-Uebersicht wird beim nächsten Lauf erneut versucht.");
+            return;
+        }
+
+        var (subject, body) = BuildCoverageSummaryMail(coverage);
+        var sender = new GmxMailSender(_logger);
+        var sent = await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
+        if (!sent)
+            return;
+
+        // Uhrzeit des bisherigen Termins behalten; fehlt er, gilt 05:00.
+        var sendTime = state.NextSend?.TimeOfDay ?? new TimeSpan(5, 0, 0);
+        var next = now.Date + state.Interval + sendTime;
+        CoverageSummaryState.Save(baseDirectory, state with { NextSend = next });
+        _logger.LogInformation("Nächste Fixkosten-Uebersicht: {NextSend}", next);
+    }
+
+    // Deckungspruefung fuer das Gehaltskonto, sofern es in den uebergebenen Ergebnissen steckt (bei der Update-Mail
+    // nur mit neuen Buchungen, bei der Uebersicht immer). Ein Fehler hier darf den Versand nie verhindern.
     private CoverageResult? TryCalculateCoverage(string baseDirectory, ServiceSettings settings, List<AccountUpdateResult> changed)
     {
         if (string.IsNullOrWhiteSpace(settings.SalaryAccountIban))
