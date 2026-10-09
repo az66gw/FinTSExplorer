@@ -132,6 +132,13 @@ public class Worker : BackgroundService
 
         var sender = new GmxMailSender(_logger);
         await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
+
+        // Zusaetzlich die knappe Fassung nur mit der Deckung und der 3-Monats-Planung, direkt hinterher.
+        if (coverage is not null)
+        {
+            var (summarySubject, summaryBody) = BuildCoverageSummaryMail(coverage);
+            await sender.SendAsync(mailContext, recipientAddress, summarySubject, summaryBody, stoppingToken);
+        }
     }
 
     // Deckungspruefung nur, wenn auf dem Gehaltskonto neue Buchungen dazugekommen sind. Ein Fehler hier darf
@@ -171,6 +178,25 @@ public class Worker : BackgroundService
         return $"ACHTUNG: Ab Tag {first.Day} ({first.Label}) reicht das Geld auf dem Gehaltskonto voraussichtlich nicht mehr."
             + Environment.NewLine
             + $"Es fehlen bis zu {shortfall} EUR - bitte vorher umbuchen.";
+    }
+
+    private static (string Subject, string Body) BuildCoverageSummaryMail(CoverageResult coverage)
+    {
+        static string Cost(decimal value) => Math.Abs(value).ToString("0.00", CultureInfo.InvariantCulture);
+
+        var german = new CultureInfo("de-DE");
+        var open = -coverage.Total;
+        var paid = -coverage.Paid;
+
+        // Reine Uebersicht ohne Warnung - die Warnung steht in der ausfuehrlichen Update-Mail.
+        var body = new StringBuilder();
+        body.AppendLine($"{"Monat",-15} {"Fixkosten",10} {"davon abgebucht",17} {"noch offen",12}");
+        body.AppendLine($"{coverage.Month.ToString("MMMM yyyy", german),-15} {Cost(paid + open),10} {Cost(paid),17} {Cost(open),12}");
+
+        foreach (var month in coverage.Outlook)
+            body.AppendLine($"{month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10}");
+
+        return ("FinTSExplorer: Fixkosten-Uebersicht", body.ToString());
     }
 
     private static string BuildCoverageSection(CoverageResult coverage)
