@@ -132,6 +132,13 @@ public class Worker : BackgroundService
 
         var sender = new GmxMailSender(_logger);
         await sender.SendAsync(mailContext, recipientAddress, subject, body, stoppingToken);
+
+        // Zusaetzlich die knappe Fassung nur mit der Deckung und der 3-Monats-Planung, direkt hinterher.
+        if (coverage is not null)
+        {
+            var (summarySubject, summaryBody) = BuildCoverageSummaryMail(coverage);
+            await sender.SendAsync(mailContext, recipientAddress, summarySubject, summaryBody, stoppingToken);
+        }
     }
 
     // Deckungspruefung nur, wenn auf dem Gehaltskonto neue Buchungen dazugekommen sind. Ein Fehler hier darf
@@ -171,6 +178,49 @@ public class Worker : BackgroundService
         return $"ACHTUNG: Ab Tag {first.Day} ({first.Label}) reicht das Geld auf dem Gehaltskonto voraussichtlich nicht mehr."
             + Environment.NewLine
             + $"Es fehlen bis zu {shortfall} EUR - bitte vorher umbuchen.";
+    }
+
+    private static (string Subject, string Body) BuildCoverageSummaryMail(CoverageResult coverage)
+    {
+        static string Amount(decimal value) => value.ToString("0.00", CultureInfo.InvariantCulture);
+        static string Cost(decimal value) => Math.Abs(value).ToString("0.00", CultureInfo.InvariantCulture);
+
+        var german = new CultureInfo("de-DE");
+        var monthName = coverage.Month.ToString("MMMM", german);
+        var open = -coverage.Total;
+        var paid = -coverage.Paid;
+
+        var subject = $"FinTSExplorer: Fixkosten {monthName}, Deckung Gehaltskonto";
+        var body = new StringBuilder();
+
+        if (coverage.Shortfall > 0)
+        {
+            subject = "ACHTUNG " + subject;
+            body.AppendLine(BuildCoverageWarning(coverage));
+            body.AppendLine();
+        }
+
+        body.AppendLine($"Fixkosten {monthName} (Gehaltskonto):  {Cost(paid + open),10} EUR");
+        body.AppendLine($"  davon schon abgebucht:            {Cost(paid),10} EUR");
+        body.AppendLine($"  noch offen:                       {Cost(open),10} EUR");
+        body.AppendLine();
+        body.AppendLine($"Kontostand heute:                   {Amount(coverage.Balance),10} EUR");
+        body.AppendLine($"Voraussichtlich am Monatsende:      {Amount(coverage.EndBalance),10} EUR   -> {(coverage.Shortfall > 0 ? "ZU WENIG" : "OK")}");
+        body.AppendLine();
+        body.AppendLine("Planung der naechsten Monate (Fixkosten Gehaltskonto):");
+
+        foreach (var month in coverage.Outlook)
+        {
+            var extras = month.NonMonthlyItems.Count == 0
+                ? ""
+                : "   (inkl. nicht monatlich: " + string.Join(", ", month.NonMonthlyItems.Select(i => $"{i.Label} {Cost(i.Amount)}")) + ")";
+
+            body.AppendLine($"  {month.Month.ToString("MMMM yyyy", german),-15} {Cost(month.Total),10} EUR{extras}");
+        }
+
+        body.AppendLine();
+        body.AppendLine("Nicht enthalten: Gehalt, Bargeld, Kartenzahlungen und die Mastercard-Abrechnung.");
+        return (subject, body.ToString());
     }
 
     private static string BuildCoverageSection(CoverageResult coverage)
