@@ -8,6 +8,10 @@ public sealed record AccountUpdateResult(AccountInformation Account, List<CamtTr
 
 public class AccountUpdater
 {
+    // Die Bank gibt Daten, die aelter als 90 Tage sind, nur nach starker Kundenauthentifizierung heraus (PSD2).
+    // Etwas Abstand zur Grenze, damit Uhrzeit-/Zeitzonenunterschiede keine Rolle spielen.
+    private const int MaxLookbackDays = 85;
+
     private readonly FinTsClient _client;
     private readonly FinTsOperations _operations;
     private readonly string _baseDirectory;
@@ -52,6 +56,15 @@ public class AccountUpdater
         _log(startDate is not null
             ? $"[{account.AccountIban}] Vorhandene Daten bis {startDate:d} – lade ab da neu."
             : $"[{account.AccountIban}] Keine vorhandenen Daten – lade maximal möglichen Zeitraum.");
+
+        // Ruhige Konten (letzte Buchung schon lange her) wuerden sonst jeden Tag weiter zurueck abfragen, bis die
+        // 90-Tage-Grenze ueberschritten ist und die Bank jedes Mal eine Freigabe in der Security-App verlangt.
+        var earliestStart = DateTime.Today.AddDays(-MaxLookbackDays);
+        if (startDate is not null && startDate < earliestStart)
+        {
+            startDate = earliestStart;
+            _log($"[{account.AccountIban}] Startdatum auf {startDate:d} begrenzt (maximal {MaxLookbackDays} Tage zurück, wegen der 90-Tage-Grenze der Bank).");
+        }
 
         var result = await _operations.WaitForResultAsync(_client.Transactions_camt(new TANDialog(_operations.WaitForTanAsync), CamtVersion.Camt052, startDate));
         if (result is null)
