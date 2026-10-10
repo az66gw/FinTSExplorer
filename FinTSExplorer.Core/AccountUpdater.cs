@@ -9,8 +9,12 @@ public sealed record AccountUpdateResult(AccountInformation Account, List<CamtTr
 public class AccountUpdater
 {
     // Die Bank gibt Daten, die aelter als 90 Tage sind, nur nach starker Kundenauthentifizierung heraus (PSD2).
-    // Etwas Abstand zur Grenze, damit Uhrzeit-/Zeitzonenunterschiede keine Rolle spielen.
+    // Etwas Abstand zur Grenze, damit Uhrzeit-/Zeitzonenunterschiede keine Rolle spielen. Gilt nur noch fuer den
+    // Umstieg ohne Abruf-Zeitstempel.
     private const int MaxLookbackDays = 85;
+
+    // So viele Tage vor dem letzten Abruf beginnt die naechste Abfrage (Buchungen koennen nachtraeglich auftauchen).
+    private const int OverlapDays = 7;
 
     private readonly FinTsClient _client;
     private readonly FinTsOperations _operations;
@@ -51,19 +55,35 @@ public class AccountUpdater
 
         var path = TransactionStore.GetFilePath(_baseDirectory, account.AccountIban);
         var existing = TransactionStore.LoadExisting(path);
-        DateTime? startDate = existing.Count > 0 ? existing.Max(t => t.ValueDate) : null;
+        var fetchStarted = DateTime.Now;
+        var lastFetch = LastFetchStore.Get(_baseDirectory, account.AccountIban);
+        DateTime? startDate;
 
-        _log(startDate is not null
-            ? $"[{account.AccountIban}] Vorhandene Daten bis {startDate:d} – lade ab da neu."
-            : $"[{account.AccountIban}] Keine vorhandenen Daten – lade maximal möglichen Zeitraum.");
-
-        // Ruhige Konten (letzte Buchung schon lange her) wuerden sonst jeden Tag weiter zurueck abfragen, bis die
-        // 90-Tage-Grenze ueberschritten ist und die Bank jedes Mal eine Freigabe in der Security-App verlangt.
-        var earliestStart = DateTime.Today.AddDays(-MaxLookbackDays);
-        if (startDate is not null && startDate < earliestStart)
+        if (lastFetch is not null)
         {
-            startDate = earliestStart;
-            _log($"[{account.AccountIban}] Startdatum auf {startDate:d} begrenzt (maximal {MaxLookbackDays} Tage zurück, wegen der 90-Tage-Grenze der Bank).");
+            // Ab dem letzten erfolgreichen Abruf, mit etwas Ueberlapp fuer nachtraeglich eingetragene Buchungen.
+            // War der Dienst lange aus, reicht das weit zurueck - die Freigabe der Bank ist dann berechtigt.
+            startDate = lastFetch.Value.Date.AddDays(-OverlapDays);
+            _log($"[{account.AccountIban}] Letzter Abruf am {lastFetch:g} – lade ab {startDate:d} neu.");
+        }
+        else if (existing.Count > 0)
+        {
+            // Noch kein Abruf-Zeitstempel (z.B. erster Lauf nach dem Umstieg): ab der letzten Buchung, aber hoechstens
+            // MaxLookbackDays zurueck - die Bank verlangt fuer aeltere Daten bei jedem Lauf eine Freigabe.
+            startDate = existing.Max(t => t.ValueDate);
+            _log($"[{account.AccountIban}] Vorhandene Daten bis {startDate:d} – lade ab da neu.");
+
+            var earliestStart = DateTime.Today.AddDays(-MaxLookbackDays);
+            if (startDate < earliestStart)
+            {
+                startDate = earliestStart;
+                _log($"[{account.AccountIban}] Startdatum auf {startDate:d} begrenzt (maximal {MaxLookbackDays} Tage zurück).");
+            }
+        }
+        else
+        {
+            startDate = null;
+            _log($"[{account.AccountIban}] Keine vorhandenen Daten – lade maximal möglichen Zeitraum.");
         }
 
         var result = await _operations.WaitForResultAsync(_client.Transactions_camt(new TANDialog(_operations.WaitForTanAsync), CamtVersion.Camt052, startDate));
@@ -77,6 +97,10 @@ public class AccountUpdater
 
         var added = TransactionStore.Save(path, result.Data);
         _log($"[{account.AccountIban}] {added.Count} neue Umsätze gespeichert.");
+
+        // Erst nach erfolgreichem Speichern merken. Der Zeitpunkt vor der Abfrage zaehlt, damit nichts zwischen Abfrage
+        // und Zeitstempel durchrutscht.
+        LastFetchStore.Set(_baseDirectory, account.AccountIban, fetchStarted);
 
         var balance = await FetchBalanceAsync(account);
         return new AccountUpdateResult(account, added, balance);
