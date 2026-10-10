@@ -170,8 +170,8 @@ public class Worker : BackgroundService
         if (!sent)
             return;
 
-        // Uhrzeit des bisherigen Termins behalten; fehlt er, gilt 05:00.
-        var sendTime = state.NextSend?.TimeOfDay ?? new TimeSpan(5, 0, 0);
+        // Uhrzeit des bisherigen Termins behalten; fehlt er, gilt 08:30.
+        var sendTime = state.NextSend?.TimeOfDay ?? new TimeSpan(8, 30, 0);
         var next = now.Date + state.Interval + sendTime;
         CoverageSummaryState.Save(baseDirectory, state with { NextSend = next });
         _logger.LogInformation("Nächste Fixkosten-Uebersicht: {NextSend}", next);
