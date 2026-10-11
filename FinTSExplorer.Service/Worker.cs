@@ -194,6 +194,15 @@ public class Worker : BackgroundService
                 return null;
 
             var transactions = TransactionStore.LoadExisting(TransactionStore.GetFilePath(baseDirectory, salaryResult.Account.AccountIban));
+
+            // Fixkosten der Mastercard gehen ueber die Abrechnung vom Gehaltskonto weg. Die Abrechnung selbst bleibt
+            // ausgeschlossen (FixedCostsExcludes.json), damit nichts doppelt zaehlt.
+            if (!string.IsNullOrWhiteSpace(settings.CardAccountIban))
+            {
+                var cardIban = settings.CardAccountIban.Replace(" ", "");
+                transactions = transactions.Concat(TransactionStore.LoadExisting(TransactionStore.GetFilePath(baseDirectory, cardIban))).ToList();
+            }
+
             var overrides = FixedCostOverrides.Load(baseDirectory);
             var excludes = FixedCostExcludes.Load(baseDirectory);
             var confirmed = FixedCostConfirmed.Load(baseDirectory);
@@ -265,7 +274,7 @@ public class Worker : BackgroundService
             text.AppendLine($"Voraussichtlich am Monatsende: {Money(coverage.EndBalance),10} EUR   -> {(coverage.Shortfall > 0 ? "ZU WENIG" : "OK")}");
         }
 
-        text.AppendLine("Nicht enthalten: Gehalt, Bargeld, Kartenzahlungen und die Mastercard-Abrechnung.");
+        text.AppendLine("Nicht enthalten: Gehalt, Bargeld, einmalige Kartenzahlungen und die Mastercard-Abrechnung selbst (Fixkosten der Mastercard sind einzeln enthalten).");
         return text.ToString();
     }
 

@@ -15,6 +15,11 @@ public sealed class ServiceSettings
     // Bewusst ohne Vorgabe im Quellcode.
     public string? SalaryAccountIban { get; set; }
 
+    // IBAN der Mastercard (Kreditkartenkonto). Ihre Fixkosten (z.B. Abos) zaehlen mit in die Deckungspruefung und
+    // die Uebersicht, weil das Geld ueber die Mastercard-Abrechnung vom Gehaltskonto geht. Leer = nicht beruecksichtigt.
+    // Bewusst ohne Vorgabe im Quellcode.
+    public string? CardAccountIban { get; set; }
+
     // Wie weit das Gehaltskonto ins Minus darf (positiver Betrag, 0 = kein Dispo).
     public decimal OverdraftLimit { get; set; }
 
