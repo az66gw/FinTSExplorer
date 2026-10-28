@@ -27,7 +27,10 @@ Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
 Write-Host "Stopping $notifierProcessName..."
 Stop-Process -Name $notifierProcessName -Force -ErrorAction SilentlyContinue
 
-dotnet publish $serviceProjectPath -c Release -o $serviceOutputPath
+# Dienst self-contained: die .NET-Laufzeit liegt im Deploy-Ordner. Ein .NET-Update von Windows kann dem laufenden Dienst
+# so nicht mehr die Dateien wegnehmen (sonst FileNotFoundException, z. B. System.Net.NetworkInformation). Laufzeit-Updates
+# kommen dafür erst mit dem nächsten Publish. Der Notifier bleibt vorerst wie er ist.
+dotnet publish $serviceProjectPath -c Release -r win-x64 --self-contained true -o $serviceOutputPath
 dotnet publish $notifierProjectPath -c Release -o $notifierOutputPath
 
 Write-Host "Starting $serviceName..."
